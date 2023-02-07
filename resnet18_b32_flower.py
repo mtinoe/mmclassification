@@ -1,44 +1,111 @@
-# 模型配置
-_base_ = ['../_base_/models/resnet18.py']
 model = dict(
+    type='ImageClassifier',
+    backbone=dict(
+        type='ResNet',
+        depth=18,
+        num_stages=4,
+        out_indices=(3, ),
+        style='pytorch'),
+    neck=dict(type='GlobalAveragePooling'),
     head=dict(
+        type='LinearClsHead',
         num_classes=5,
-        topk = (1,)
-    ))
-#数据配置
-_base_ =['../_base_/models/resnet18.py','../_base_/datasets/imagenet_bs32.py','../_base_/default_runtime.py']
-
+        in_channels=512,
+        loss=dict(type='CrossEntropyLoss', loss_weight=1.0),
+        topk=(1, )))
+dataset_type = 'ImageNet'
+img_norm_cfg = dict(
+    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+train_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='RandomResizedCrop', size=224),
+    dict(type='RandomFlip', flip_prob=0.5, direction='horizontal'),
+    dict(
+        type='Normalize',
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        to_rgb=True),
+    dict(type='ImageToTensor', keys=['img']),
+    dict(type='ToTensor', keys=['gt_label']),
+    dict(type='Collect', keys=['img', 'gt_label'])
+]
+test_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='Resize', size=(256, -1)),
+    dict(type='CenterCrop', crop_size=224),
+    dict(
+        type='Normalize',
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        to_rgb=True),
+    dict(type='ImageToTensor', keys=['img']),
+    dict(type='Collect', keys=['img'])
+]
 data = dict(
-# 根据实验环境调整每个 batch_size 和 workers 数量
-    samples_per_gpu = 32,
-    workers_per_gpu = 2,
-# 指定训练集路径
-    train = dict(
-        data_prefix ='data/flower/train',
-        ann_file ='data/flower/train.txt',
-        #ann_file = None,
-        classes ='data/flower/classes.txt'
-    ),
-# 指定验证集路径
-    val = dict(
-        data_prefix ='data/flower/val',
-        #ann_file ='data/flower/val.txt',
+    samples_per_gpu=32,
+    workers_per_gpu=2,
+    train=dict(
+        type='ImageNet',
+        data_prefix='data/flower/train',
+        pipeline=[
+            dict(type='LoadImageFromFile'),
+            dict(type='RandomResizedCrop', size=224),
+            dict(type='RandomFlip', flip_prob=0.5, direction='horizontal'),
+            dict(
+                type='Normalize',
+                mean=[123.675, 116.28, 103.53],
+                std=[58.395, 57.12, 57.375],
+                to_rgb=True),
+            dict(type='ImageToTensor', keys=['img']),
+            dict(type='ToTensor', keys=['gt_label']),
+            dict(type='Collect', keys=['img', 'gt_label'])
+        ],
         ann_file=None,
-        classes ='data/flower/classes.txt'
-    )
-)
-# 定义评估⽅法
-evaluation = dict(metric_options={'topk': (1, )})
-
-#修改训练策略设置
-# 优化器
+        classes='data/flower/classes.txt'),
+    val=dict(
+        type='ImageNet',
+        data_prefix='data/flower/val',
+        ann_file=None,
+        pipeline=[
+            dict(type='LoadImageFromFile'),
+            dict(type='Resize', size=(256, -1)),
+            dict(type='CenterCrop', crop_size=224),
+            dict(
+                type='Normalize',
+                mean=[123.675, 116.28, 103.53],
+                std=[58.395, 57.12, 57.375],
+                to_rgb=True),
+            dict(type='ImageToTensor', keys=['img']),
+            dict(type='Collect', keys=['img'])
+        ],
+        classes='data/flower/classes.txt'),
+    test=dict(
+        type='ImageNet',
+        data_prefix='data/imagenet/val',
+        ann_file='data/imagenet/meta/val.txt',
+        pipeline=[
+            dict(type='LoadImageFromFile'),
+            dict(type='Resize', size=(256, -1)),
+            dict(type='CenterCrop', crop_size=224),
+            dict(
+                type='Normalize',
+                mean=[123.675, 116.28, 103.53],
+                std=[58.395, 57.12, 57.375],
+                to_rgb=True),
+            dict(type='ImageToTensor', keys=['img']),
+            dict(type='Collect', keys=['img'])
+        ]))
+evaluation = dict(interval=1, metric='accuracy')
+checkpoint_config = dict(interval=1)
+log_config = dict(interval=100, hooks=[dict(type='TextLoggerHook')])
+dist_params = dict(backend='nccl')
+log_level = 'INFO'
+load_from = 'checkpoints/resnet18_8xb32_in1k_20210831-fbbb1da6.pth'
+resume_from = None
+workflow = [('train', 1)]
 optimizer = dict(type='SGD', lr=0.001, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=None)
-# 学习率策略
-lr_config = dict(
-    policy='step',
-    step=[1])
-
-runner = dict(type='EpochBasedRunner', max_epochs=2)
-
-load_from = 'checkpoints/resnet18_8xb32_in1k_20210831-fbbb1da6.pth'
+lr_config = dict(policy='step', step=[1])
+runner = dict(type='EpochBasedRunner', max_epochs=100)
+work_dir = './work_dirs\resnet18_b32_flower'
+gpu_ids = [0]
